@@ -6,6 +6,7 @@ import { Header } from "./components/Header"
 import { StatusBar } from "./components/StatusBar"
 import { StoryListView } from "./views/StoryListView"
 import { StoryDetailView } from "./views/StoryDetailView"
+import type { DetailMode } from "./views/StoryDetailView"
 import { MessageView } from "./views/MessageView"
 import { useStoryIds } from "./hooks/useStoryIds"
 import { useItems } from "./hooks/useItems"
@@ -13,6 +14,7 @@ import { flattenTree, useCommentTree } from "./hooks/useCommentTree"
 import { useSaved } from "./hooks/useSaved"
 import { useHistory } from "./hooks/useHistory"
 import { useUpdateCheck } from "./hooks/useUpdateCheck"
+import { useRecap } from "./hooks/useRecap"
 import { ALL_CATEGORIES, FEED_CATEGORIES } from "./api/types"
 import type { Category, FeedCategory, Item } from "./api/types"
 import { openUrl } from "./utils/openUrl"
@@ -20,7 +22,7 @@ import { extractLinks, parseHnItemLink, type HnItemRef, type Link } from "./util
 import { resolveStory } from "./api/hn"
 import type { HnError, HnItemGone } from "./api/hn"
 import { AppRuntime } from "./runtime"
-import { hnErrorMessage } from "./utils/errors"
+import { hnErrorMessage, recapErrorMessage } from "./utils/errors"
 import { startThemeWipe } from "./utils/themeWipe"
 import { LinksPopup } from "./components/LinksPopup"
 import { HelpOverlay } from "./components/HelpOverlay"
@@ -38,7 +40,7 @@ type View =
   | { kind: "resolveError"; ref: HnItemRef; error: ResolveError }
 
 // A suspended detail view: enough state to resume it exactly where it was left
-type DetailSnapshot = { story: Item; cursor: number; collapsed: Set<number> }
+type DetailSnapshot = { story: Item; mode: DetailMode; cursor: number; collapsed: Set<number> }
 
 export function App() {
   const renderer = useRenderer()
@@ -101,6 +103,9 @@ export function App() {
   const [resolving, setResolving] = useState(false)
   const [pendingFocus, setPendingFocus] = useState<number | null>(null)
   const [commentsRefresh, setCommentsRefresh] = useState(0)
+  // a story opens on its recap; `c` flips to the comments and back
+  const [detailMode, setDetailMode] = useState<DetailMode>("recap")
+  const [recapRefresh, setRecapRefresh] = useState(0)
   const resolveFiber = useRef<Fiber.RuntimeFiber<void, never> | null>(null)
   const lastG = useRef<number>(0)
   const listScrollRef = useRef<ScrollBoxRenderable | null>(null)
@@ -109,6 +114,7 @@ export function App() {
   const story = view.kind === "detail" ? view.story : null
   const { tree, loading: commentsLoading } = useCommentTree(story?.kids, 8, commentsRefresh)
   const flat = useMemo(() => flattenTree(tree, collapsed), [tree, collapsed])
+  const recap = useRecap(story, recapRefresh)
 
   useEffect(() => {
     if (listCursor >= items.length) setListCursor(Math.max(0, items.length - 1))
@@ -173,7 +179,8 @@ export function App() {
         },
       })
     }
-    items.push({ label: "Open comments", action: () => enterDetail(item) })
+    items.push({ label: "Open recap", action: () => enterDetail(item) })
+    items.push({ label: "Open comments", action: () => enterDetail(item, undefined, "comments") })
     setMenu({ x, y, items, cursor: 0 })
   }
 
@@ -198,14 +205,16 @@ export function App() {
 
   // Entering from the list starts fresh; entering from a detail view pushes
   // the current view (with cursor + collapsed state) onto the stack first.
-  const enterDetail = (item: Item, focusId?: number) => {
+  const enterDetail = (item: Item, focusId?: number, mode: DetailMode = "recap") => {
     cancelResolve()
     markViewed(item.id)
     if (view.kind === "detail") {
-      const snap = { story: view.story, cursor: detailCursor, collapsed }
+      const snap = { story: view.story, mode: detailMode, cursor: detailCursor, collapsed }
       setStack((s) => [...s, snap])
     }
     setView({ kind: "detail", story: item })
+    setDetailMode(mode)
+    setRecapRefresh(0)
     setDetailCursor(0)
     setCollapsed(new Set())
     setPendingFocus(focusId ?? null)
@@ -222,6 +231,8 @@ export function App() {
     }
     setStack((s) => s.slice(0, -1))
     setView({ kind: "detail", story: top.story })
+    setDetailMode(top.mode)
+    setRecapRefresh(0)
     setDetailCursor(top.cursor)
     setCollapsed(top.collapsed)
   }
@@ -238,7 +249,7 @@ export function App() {
     // retrying from an existing error view replaces it — only a detail
     // view being left behind needs a snapshot pushed
     if (view.kind === "detail") {
-      const snap = { story: view.story, cursor: detailCursor, collapsed }
+      const snap = { story: view.story, mode: detailMode, cursor: detailCursor, collapsed }
       setStack((s) => [...s, snap])
     }
     setView({ kind: "resolveError", ref, error })
@@ -253,7 +264,8 @@ export function App() {
           onSuccess: (r) => {
             resolveFiber.current = null
             setResolving(false)
-            enterDetail(r.story, r.focusId)
+            // a link to a specific comment lands in the comments, not the recap
+            enterDetail(r.story, r.focusId, r.focusId != null ? "comments" : "recap")
           },
           onFailure: (error) => {
             resolveFiber.current = null
@@ -401,9 +413,12 @@ export function App() {
         setListCursor((c) => Math.min(max, c + pg))
       } else if ((ev.ctrl && name === "u") || name === "pageup") {
         setListCursor((c) => Math.max(0, c - pg))
-      } else if (name === "c" || name === "return" || name === "enter") {
+      } else if (name === "return" || name === "enter") {
         const cur = items[listCursor]
         if (cur) enterDetail(cur)
+      } else if (name === "c") {
+        const cur = items[listCursor]
+        if (cur) enterDetail(cur, undefined, "comments")
       } else if (name === "h" || name === "left") {
         cycleCategory(-1)
       } else if (name === "l" || name === "right") {
@@ -440,6 +455,37 @@ export function App() {
         // a gone post stays gone — only transient failures earn a retry
         startResolve(view.ref)
       }
+    } else if (detailMode === "recap") {
+      // the recap is plain scrolling text — no cursor to move
+      const sb = detailScrollRef.current
+      if (name === "j" || name === "down") {
+        sb?.scrollBy(1)
+      } else if (name === "k" || name === "up") {
+        sb?.scrollBy(-1)
+      } else if (name === "g" && ev.shift) {
+        sb?.scrollTo(sb.scrollHeight)
+      } else if (name === "g") {
+        const now = Date.now()
+        if (now - lastG.current < 500) sb?.scrollTo(0)
+        lastG.current = now
+      } else if ((ev.ctrl && name === "d") || name === "pagedown") {
+        sb?.scrollBy(0.5, "viewport")
+      } else if ((ev.ctrl && name === "u") || name === "pageup") {
+        sb?.scrollBy(-0.5, "viewport")
+      } else if (name === "c") {
+        setDetailMode("comments")
+      } else if (name === "r") {
+        // ask Claude again, bypassing the cache — also the retry after an error
+        if (!recap.loading) setRecapRefresh((k) => k + 1)
+      } else if (name === "o") {
+        if (view.story.url) openUrl(view.story.url)
+      } else if (name === "y") {
+        openHnLink(view.story.id)
+      } else if (name === "s") {
+        toggleSave(view.story.id)
+      } else if (name === "h" || name === "left" || name === "backspace" || name === "escape") {
+        popView()
+      }
     } else {
       const max = flat.length - 1
       const pg = pageSize("detail")
@@ -463,6 +509,8 @@ export function App() {
       } else if (name === "return" || name === "enter") {
         const cur = flat[detailCursor]
         if (cur) openLinksFor(cur.node.item.id)
+      } else if (name === "c") {
+        setDetailMode("recap")
       } else if (name === "o") {
         if (view.story.url) openUrl(view.story.url)
       } else if (name === "y") {
@@ -480,7 +528,7 @@ export function App() {
     }
   })
 
-  const detailLoading = commentsLoading
+  const detailLoading = detailMode === "recap" ? recap.loading : commentsLoading
   const statusLoading =
     (view.kind === "list" ? listLoading : view.kind === "detail" ? detailLoading : false) ||
     resolving
@@ -552,6 +600,12 @@ export function App() {
               key={view.story.id}
               ref={detailScrollRef}
               story={view.story}
+              mode={detailMode}
+              recap={{
+                text: recap.text,
+                loading: recap.loading,
+                error: recap.error ? recapErrorMessage(recap.error) : null,
+              }}
               flat={flat}
               cursor={detailCursor}
               collapsed={collapsed}
@@ -583,7 +637,7 @@ export function App() {
           )}
         </box>
         <StatusBar
-          view={view.kind === "detail" ? "detail" : "list"}
+          view={view.kind === "detail" ? (detailMode === "recap" ? "recap" : "detail") : "list"}
           category={category}
           loading={statusLoading}
           updateAvailable={updateAvailable}

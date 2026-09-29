@@ -3,7 +3,7 @@ import type { Category } from "../api/types"
 import { selectionColors, useTheme } from "../theme"
 
 interface Props {
-  view: "list" | "detail"
+  view: "list" | "detail" | "recap"
   category?: Category
   loading?: boolean
   message?: string
@@ -15,9 +15,11 @@ export function StatusBar({ view, category, loading, message, updateAvailable }:
   const hints =
     view === "list"
       ? category === "history"
-        ? "j/k move · c/⏎ open · x clear history · q quit"
-        : "j/k move · c/⏎ open · s save · q quit"
-      : "j/k move · space collapse · ⏎ links · h/esc back"
+        ? "j/k move · ⏎ recap · c comments · x clear history · q quit"
+        : "j/k move · ⏎ recap · c comments · s save · q quit"
+      : view === "recap"
+        ? "j/k scroll · c comments · r regenerate · o open · h/esc back"
+        : "j/k move · space collapse · ⏎ links · c recap · h/esc back"
   return (
     <box
       flexDirection="row"

@@ -1,18 +1,22 @@
-<h1 align="center">hntui: Hacker News in your terminal!</h1>
+<h1 align="center">hntui-recap: Hacker News in your terminal, with Claude recaps</h1>
 
-<p align="center">A sleek and elegant tui for browsing one of the best tech news sources.</p>
+<p align="center">A fork of <a href="https://github.com/ahmd-sh/hntui"><b>hntui</b></a> by Ahmed Shaikh that opens each post on a recap of the article, written by Claude, instead of the comments.</p>
 
 <p align="center">
   <img src=".github/assets/hntui-showcase.webp" alt="hntui — Hacker News in your terminal" width="800">
 </p>
 
-```
-curl -fsSL https://raw.githubusercontent.com/ahmd-sh/hntui/main/install.sh | sh
+> **Standing on the shoulders of hntui.** Everything that makes this app good to use is Ahmed Shaikh's work in [ahmd-sh/hntui](https://github.com/ahmd-sh/hntui): the OpenTUI interface, the feeds, the comment tree, saved posts and history, the themes, the Knight Rider loader, the Effect-based data layer, the tests, the release tooling. This fork adds one thing on top, the recap pane, and follows upstream otherwise. If you just want a great Hacker News TUI, use the original. Thank you, Ahmed.
+
+```bash
+git clone https://github.com/simontjell/hntui-recap.git ~/src/hntui-recap
+cd ~/src/hntui-recap && bun install && bun build --compile src/index.tsx --outfile ~/.local/bin/hntui
 hntui
 ```
 
 ## What it does
 
+- **New in this fork:** open a post and get a recap of the linked article, written by Claude and streamed into the terminal. Press `c` for the comments.
 - Browse all six HN feeds: Top, New, Best, Ask, Show, and Jobs.
 - Navigate through a post's comments.
 - Save posts for later.
@@ -22,31 +26,22 @@ hntui
 
 ## Requirements
 
-Any modern terminal with truecolor, mouse support, and UTF-8 will work. I've tested it in Ghostty on MacOS. Linux/Windows is supported by OpenTUI but I haven't tried it (yet).
+Any modern terminal with truecolor, mouse support, and UTF-8 will work. Upstream hntui is developed in Ghostty on macOS; this fork is used daily in foot on Fedora (sway).
 
-The prebuilt binaries have no dependencies. Installing through npm (or hacking on the code) needs [Bun](https://bun.sh) 1.2 or newer.
+Building needs [Bun](https://bun.sh) 1.2 or newer. Recaps need [Claude Code](https://claude.com/claude-code) installed and logged in; everything else works without it.
 
 ## Install
 
-### Standalone binary (recommended)
+This fork is not published anywhere, so it is built from source into a standalone binary. There are no prebuilt binaries and no npm package; those belong to the [original](https://github.com/ahmd-sh/hntui).
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ahmd-sh/hntui/main/install.sh | sh
+git clone https://github.com/simontjell/hntui-recap.git ~/src/hntui-recap
+cd ~/src/hntui-recap
+bun install
+bun build --compile src/index.tsx --outfile ~/.local/bin/hntui
 ```
 
-Installs a self-contained binary to `~/.local/bin`. You can also grab a binary for your platform directly from the [releases page](https://github.com/ahmd-sh/hntui/releases). Binaries cover macOS (Apple Silicon) and Linux (x64, arm64) — on an Intel Mac, use the Bun install below.
-
-### With Bun
-
-```bash
-bun add -g @ahmd-sh/hntui
-```
-
-Or run it once without installing:
-
-```bash
-bunx @ahmd-sh/hntui
-```
+To update, `git pull` and build again. Do not run `hntui update`: it is inherited from upstream and would replace the binary with the original hntui.
 
 ## Run
 
@@ -56,14 +51,11 @@ hntui
 
 Press `q` (or `Ctrl-C`) to quit.
 
-## Updating
+## Recaps
 
-```bash
-hntui update
-```
+Opening a post with `⏎` shows a recap of the linked article instead of the comments: a short paragraph on what it is about, then the key points. The page is fetched, its text extracted, and handed to Claude. Ask HN and other text-only posts get a recap of the post itself. Press `c` to switch to the comments and `c` again to come back, or `r` to throw the recap away and ask for a fresh one. Finished recaps are cached in `~/.config/hntui/recaps.json`, so reopening a post costs nothing.
 
-Checks the latest release and, for binary installs, replaces itself in place. Bun installs update with `bun add -g @ahmd-sh/hntui` instead (`hntui update` will tell you so). When a newer release exists, the status bar shows a quiet hint. `hntui --version` prints the installed version.
-
+Recaps are written by [Claude Code](https://claude.com/claude-code) in headless mode (`claude -p`), so they use the same login as the `claude` command and need no API key. Install Claude Code, run `claude` once and log in with `/login`. Without it the recap pane says so, and the comments work as before. Each recap is a single prompt with settings, plugins, MCP servers and tools switched off, so it costs about as much as the article is long.
 ## Keybindings
 
 ### Story list
@@ -73,7 +65,8 @@ Checks the latest release and, for binary installs, replaces itself in place. Bu
 | `j` / `↓`, `k` / `↑` | Move cursor |
 | `gg`, `G` | Jump to first or last |
 | `Ctrl-D`, `Ctrl-U`, `PgDown`, `PgUp` | Scroll a half page |
-| `c`, `Enter` | Open the story and read its comments |
+| `Enter` | Open the story's recap (by Claude) |
+| `c` | Open the story's comments |
 | `h` / `←`, `l` / `→` | Previous or next tab |
 | `Tab`, `Shift-Tab` | Cycle through tabs |
 | `1` through `6` | Jump to a specific category |
@@ -84,10 +77,24 @@ Checks the latest release and, for binary installs, replaces itself in place. Bu
 | `t` | Toggle theme |
 | `q`, `Ctrl-C` | Quit |
 
+### Story detail (recap)
+
+| Key | Action |
+|---|---|
+| `j` / `↓`, `k` / `↑` | Scroll |
+| `gg`, `G` | Jump to top or bottom |
+| `Ctrl-D`, `Ctrl-U`, `PgDown`, `PgUp` | Scroll a half page |
+| `c` | Switch to the comments |
+| `r` | Regenerate the recap (also retries after an error) |
+| `s` | Save or unsave this story |
+| `o` | Open the story's URL |
+| `Esc`, `Backspace`, `h` / `←` | Back to the list |
+
 ### Story detail (comments)
 
 | Key | Action |
 |---|---|
+| `c` | Switch back to the recap |
 | `j` / `↓`, `k` / `↑` | Move the comment cursor |
 | `gg`, `G` | Jump to first or last comment |
 | `Ctrl-D`, `Ctrl-U`, `PgDown`, `PgUp` | Scroll a half page |
@@ -122,13 +129,13 @@ Most things you can do with the keyboard, you can do with a mouse too.
 
 - Click a tab to switch feeds.
 - Click the `Y` tile to refresh the current feed (or to exit a story back to its list).
-- Click any story row to select it. Click it again to open the comments.
-- Right-click a story to open a context menu with Save, Open URL, and Open Comments.
+- Click any story row to select it. Click it again to open its recap.
+- Right-click a story to open a context menu with Save, Open URL, Open Recap and Open Comments.
 - Click a comment's header line to collapse or expand its subtree.
 - Double-click a comment's body to open its links popup.
 - Click the story URL in the detail header to open it in your browser.
 - Click outside a popup or context menu to dismiss it.
-- Use your scroll wheel to scroll lists and comment trees.
+- Use your scroll wheel to scroll lists, recaps and comment trees.
 
 ### Selecting and copying text
 
@@ -150,30 +157,21 @@ Press `s` on any story to save it. Saved posts get a small star next to the titl
 ## Development
 
 ```bash
-git clone https://github.com/ahmd-sh/hntui.git
-cd hntui
+git clone https://github.com/simontjell/hntui-recap.git
+cd hntui-recap
 bun install
 bun dev    # hot reload
+bun test
 ```
 
-Data comes from the public [Hacker News Firebase API](https://github.com/HackerNews/API).
+Data comes from the public [Hacker News Firebase API](https://github.com/HackerNews/API). `HN_DEMO=1 bun dev` runs with a canned recap and a synthetic comment, so the UI can be exercised without Claude.
 
-## Releases
-
-Pushing a `v*` tag triggers two workflows:
-
-- `.github/workflows/release.yml` cross-compiles standalone binaries (`bun build --compile`) for macOS and Linux (arm64 and x64), smoke-tests the Linux build against the live API, and attaches the tarballs to a GitHub release. This is what `install.sh` downloads.
-- `.github/workflows/publish.yml` publishes `@ahmd-sh/hntui` to npm via OIDC trusted publishing, with a [SLSA provenance attestation](https://slsa.dev/) linking the tarball back to the exact commit and workflow run that produced it. It skips gracefully if the version is already on npm.
-
-To release a new version:
-
-```bash
-npm version patch   # or minor / major
-git push --follow-tags
-```
+The recap code lives in `src/api/recap.ts` (the service, the prompt, the `claude -p` transport), `src/utils/article.ts` (page text extraction), `src/hooks/useRecap.ts` and the recap pane in `src/views/StoryDetailView.tsx`. Everything else is upstream hntui.
 
 ## Acknowledgments
 
+- [hntui](https://github.com/ahmd-sh/hntui) by [Ahmed Shaikh](https://github.com/ahmd-sh). This project *is* hntui with a recap pane bolted on; the design, the code and the care are his. Go star the original.
+- [Claude Code](https://claude.com/claude-code) by Anthropic writes the recaps.
 - [OpenTUI](https://github.com/anomalyco/opentui) by Anomaly. The native TUI core that makes all of this possible.
 - [opentui-spinner](https://github.com/msmps/opentui-spinner) by Matt Simpson. The Knight Rider loading scanner is adapted from `examples/knight-rider/utils.ts` (MIT).
 - [Effect](https://effect.website) for empowering the data layer under the hood.
@@ -181,4 +179,4 @@ git push --follow-tags
 
 ## License
 
-[MIT](./LICENSE), Copyright (c) 2026 Ahmed Shaikh.
+[MIT](./LICENSE), Copyright (c) 2026 Ahmed Shaikh. The fork keeps the original license and copyright.
